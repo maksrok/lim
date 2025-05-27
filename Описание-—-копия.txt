@@ -1,0 +1,1575 @@
+                                    МОДУЛЬ 1
+
+
+Устройство                  Логин                      Пароль
+BR-RTR                      admin                      admin
+BR-SRV                      root                       toor
+HQ-CLI                      user                       resu
+                            root                       toor
+HQ-RTR                      admin                      admin
+HQ-SRV                      root                       toor
+ISP                         root                       toor
+
+
+Имя устройства   Интерфейс        IPv4            Маска           Шлюз
+ISP              ens19            DHCP
+                 ens20            172.16.4.1      28
+                 ens21            172.16.5.1      28
+BR-RTR           te0 (isp-br)     172.16.5.5      28              172.16.5.1
+                 te1(br-net)      192.168.3.1     27
+                 tunnel.1         192.168.5.2     30
+BR-SRV           ens19            192.168.3.10    27              192.168.3.1
+HQ-RTR           te0 (isp-hq)     172.16.4.4      28              172.16.4.1
+                 te1/srv-net      192.168.1.1     26
+                 te1/scli-net     192.168.2.1     28
+                 te1/management   192.168.99.1    29
+                 tunnel.1         192.168.5.1     30
+HQ-SRV           ens19            192.168.1.10    26              192.168.1.1
+HQ-CLI           ens19            192.168.2.10    28              192.168.2.1
+
+
+1. Произведите базовую настройку устройств
+– Настройте имена устройств согласно топологии. Используйте полное доменное имя
+На ISP,
+hostnamectl set-hostname isp; exec bash
+(проверка командой hostname)
+На BR-SRV
+hostnamectl set-hostname br-srv.au-team.irpo; exec bash
+(проверка командой hostname)
+На HQ-SRV
+hostnamectl set-hostname hq-srv.au-team.irpo; exec bash
+(проверка командой hostname)
+На HQ-CLI (в терминале)
+hostnamectl set-hostname hq-cli.au-team.irpo; exec bash
+(проверка командой hostname)
+На HQ-RTR
+enable
+configure terminal
+hostname hq-rtr.au-team.irpo
+На BR-RTR
+enable
+configure terminal
+hostname br-rtr. au-team.irpo
+
+HQ-SRV(VLAN100) должна вмещать не более 64 адресов
+echo 192.168.1.10/26 > /etc/net/ifaces/ens19/ipv4address
+echo default via 192.168.1.1 > /etc/net/ifaces/ens19/ipv4route
+echo nameserver 77.88.8.8 > /etc/net/ifaces/ens19/resolv.conf
+
+BR-SRV должна вмещать не более 32 адресов
+echo 192.168.3.10/27 > /etc/net/ifaces/ens19/ipv4address
+echo default via 192.168.3.1 > /etc/net/ifaces/ens19/ipv4route
+echo nameserver 192.168.1.10 > /etc/net/ifaces/ens19/resolv.conf
+
+Настройка IP-адресации на EcoRouter
+Настраиваем интерфейс на BR-RTR, который смотрит в сторону ISP:
+Создаем логический интерфейс:
+interface int0
+description "to isp"
+ip address 172.16.5.5/28
+Настраиваем физический порт:
+port te0
+service-instance te0/int0
+encapsulation untagged
+Объединеняем порт с интерфейсом:
+interface int0
+connect port te0 service-instance te0/int0
+
+Настраиваем интерфейс на BR-RTR, который смотрит в сторону BR-SRV:
+Создаем логический интерфейс:
+interface int1
+description "br-net"
+ip address 192.168.3.1/27
+Настраиваем физический порт:
+port te1
+service-instance te1/int1
+encapsulation untagged
+Объединеняем порт с интерфейсом:
+interface int1
+connect port te1 service-instance te1/int1
+Добавление маршрута по умолчанию в EcoRouter
+ip route 0.0.0.0 0.0.0.0 172.16.5.1
+
+Настраиваем интерфейс на HQ-RTR, который смотрит в сторону ISP:
+Создаем логический интерфейс:
+interface int0
+description "to isp"
+ip address 172.16.4.4/28
+Настраиваем физический порт:
+port te0
+service-instance te0/int0
+encapsulation untagged
+Объединяем порт с интерфейсом:
+interface int0
+connect port te0 service-instance te0/int0
+
+Настраиваем интерфейсы на HQ-RTR, которые смотрят в сторону HQ-SRV и HQ-CLI (с
+разделением на VLAN):
+Создаем два интерфейса:
+interface int1
+description "to hq-srv"
+ip address 192.168.1.1/26
+!
+interface int2
+description "to hq-cli"
+ip address 192.168.2.1/28
+!
+interface int3
+description "to management"
+ip address 192.168.99.1/29
+
+Настраиваем порт:
+port te1
+service-instance te1/int1
+encapsulation dot1q 100
+rewrite pop 1
+service-instance te1/int2
+encapsulation dot1q 200
+rewrite pop 1
+service-instance te1/int3
+encapsulation dot1q 999
+rewrite pop 1
+
+Объединяем порт с интерфейсами:
+interface int1
+connect port te1 service-instance te1/int1
+interface int2
+connect port te1 service-instance te1/int2
+interface int3
+connect port te1 service-instance te1/int3
+
+Добавление маршрута по умолчанию в EcoRouter
+ip route 0.0.0.0 0.0.0.0 172.16.4.1
+
+2. Настройка ISP
+ISP-HQ
+
+echo 172.16.4.1/28 > /etc/net/ifaces/ens20/ipv4address
+
+ISP-BR
+echo 172.16.5.1/28 > /etc/net/ifaces/ens21/ipv4address
+
+Включение маршрутизации
+В файле /etc/net/sysctl.conf изменяем строку:
+net.ipv4.ip_forward = 1
+
+Изменения в файле sysctl.conf применяем следующей командой:
+sysctl -p /etc/sysctl.conf
+systemctl restart network
+
+3. Создание локальных учетных записей
+Создайте пользователя sshuser на серверах HQ-SRV и BR-SRV o Пароль пользователя
+sshuser с паролем P@ssw0rd Идентификатор пользователя 1010 o Пользователь sshuser
+должен иметь возможность запускать sudo без дополнительной аутентификации.
+
+useradd sshuser -u 1010
+
+Задаем пароль:
+passwd sshuser
+
+Добавляем в группу wheel:
+usermod -aG wheel sshuser
+
+Добавляем строку в /etc/sudoers:
+sshuser ALL=(ALL) NOPASSWD:ALL
+
+Создайте пользователя net_admin на маршрутизаторах HQ-RTR и BR-RTR o Пароль
+пользователя net_admin с паролем P@$$word o При настройке на EcoRouter пользователь
+net_admin должен обладать максимальными привилегиями
+
+Создаем самого пользователя:
+username net_admin
+
+Задаем пароль:
+password P@$$word
+
+Присваиваем привилегии администратора:
+role admin
+
+4. Настройте на интерфейсе HQ-RTR в сторону офиса HQ виртуальный коммутатор:
+
+Настройка выполнена средствами PVE
+5. Настройка безопасного удаленного доступа на серверах HQ-SRV и BR-SRV: ● Для
+подключения используйте порт 2024 ● Разрешите подключения только
+пользователю sshuser ● Ограничьте количество попыток входа до двух ● Настройте
+баннер «Authorized access only»
+
+Приводим указанные строки в файле /etc/openssh/sshd_config к следующим значениям:
+Port 2024
+MaxAuthTries 2
+PasswordAuthentication yes
+Banner /etc/openssh/bannermotd
+
+И дописываем параметр
+AllowUsers sshuser
+
+Создаем файл bannermotd:
+echo “Authorized access only” > /etc/openssh/bannermotd
+
+Перезагружаем службу:
+systemctl restart sshd
+
+6. Между офисами HQ и BR необходимо сконфигурировать ip туннель • Сведения о
+туннеле занесите в отчѐт • На выбор технологии GRE или IP in IP
+
+Создаем интерфейс GRE-туннеля на HQ-RTR:
+int tunnel.1
+
+Назначаем IP-адрес:
+ip add 192.168.5.1/30
+
+Выставляем параметр MTU:
+ip mtu 1400
+
+Задаем режим работы туннеля GRE и адреса начала и конца туннеля:
+ip tunnel 172.16.4.4 172.16.5.5 mode gre
+
+Создаем интерфейс GRE-туннеля на BR-RTR:
+int tunnel.1
+
+Назначаем IP-адрес:
+ip add 192.168.5.2/30
+
+Выставляем параметр MTU:
+ip mtu 1400
+
+Задаем режим работы туннеля GRE и адреса начала и конца туннеля:
+ip tunnel 172.16.5.5 172.16.4.4 mode gre
+
+7. Обеспечьте динамическую маршрутизацию: ресурсы одного офиса должны быть
+доступны из другого офиса. Для обеспечения динамической маршрутизации
+используйте link state протокол на ваше усмотрение. ● Разрешите выбранный
+протокол только на интерфейсах в ip туннеле ● Маршрутизаторы должны делиться
+маршрутами только друг с другом ● Обеспечьте защиту выбранного протокола
+посредством парольной защиты ● Сведения о настройке и защите протокола
+занесите в отчѐт
+
+Настройка OSPF на HQ-RTR
+Создаем процесс OSPF, указываем идентификатор маршрутизатора, объявляем сети и
+указываем пассивные интерфейсы:
+router ospf 1
+router-id 1.1.1.1
+network 192.168.5.0/30 area 0
+network 192.168.1.0/26 area 0
+network 192.168.2.0/28 area 0
+network 192.168.99.0/29 area 0
+passive-interface default
+no passive-interface tunnel.1
+exit
+int tunnel.1
+ip ospf authentication
+ip ospf message-digest-key 1 md5 P@ssw0rd
+
+
+Настройка OSPF на BR-RTR
+Создаем процесс OSPF, указываем идентификатор маршрутизатора, объявляем сети и
+указываем пассивные интерфейсы:
+router ospf 1
+router-id 2.2.2.2
+network 192.168.5.0/30 area 0
+network 192.168.3.0/27 area 0
+passive-interface default
+no passive-interface tunnel.1
+exit
+int tunnel.1
+ip ospf authentication
+ip ospf message-digest-key 1 md5 P@ssw0rd
+
+
+8. Настройка динамической трансляции адресов. ● Настройте динамическую
+трансляцию адресов для обоих офисов. ● Все устройства в офисах должны иметь
+доступ к сети Интернет
+
+На ISP добавляем правила
+apt-get update
+apt-get install iptables
+iptables -t nat -A POSTROUTING -o ens19 -j MASQUERADE
+
+(ens19 внешний порт)
+
+Сохраняем правила:
+iptables-save > /etc/sysconfig/iptables
+
+Включаем и добавляем iptables в автозагрузку:
+systemctl enable --now iptables
+Настройка NAT на HQ-RTR
+Указываем внутренние и внешние интерфейсы:
+int int1
+ip nat inside
+!
+int int2
+ip nat inside
+!
+int int3
+ip nat inside
+!
+int int0
+ip nat outside
+
+Создаем пул:
+ip nat pool NAT_POOL 192.168.1.1-192.168.1.62,192.168.2.1-192.168.2.14,192.168.99.1-
+192.168.99.6
+
+Создаем правило трансляции адресов, указывая внешний интерфейс:
+ip nat source dynamic inside-to-outside pool NAT_POOL overload interface int0
+
+Настройка NAT на BR-RTR
+Указываем внутренние и внешние интерфейсы:
+int int1
+ip nat inside
+int int0
+ip nat outside
+
+Создаем пул:
+ip nat pool NAT_POOL 192.168.3.1-192.168.3.30
+
+Создаем правило трансляции адресов, указывая внешний интерфейс:
+ip nat source dynamic inside-to-outside pool NAT_POOL overload interface int0
+
+
+9. Настройка протокола динамической конфигурации хостов. ● Настройте нужную
+подсеть ● Для офиса HQ в качестве сервера DHCP выступает маршрутизатор HQ-
+RTR. ● Клиентом является машина HQ-CLI. ● Исключите из выдачи адрес
+маршрутизатора ● Адрес шлюза по умолчанию – адрес маршрутизатора HQ-RTR. ●
+Адрес DNS-сервера для машины HQ-CLI – адрес сервера HQ-SRV. ● DNS-суффикс
+для офисов HQ – au-team.irpo ● Сведения о настройке протокола занесите в отчѐт
+
+Создаем пул для DHCP-сервера:
+ip pool cli_pool 192.168.2.10-192.168.2.10
+
+Настраиваем сам DHCP-сервер:
+dhcp-server 1
+pool cli_pool 1
+mask 255.255.255.240
+gateway 192.168.2.1
+dns 192.168.1.10
+domain-name au-team.irpo
+
+Привязываем DHCP-сервер к интерфейсу (смотрящий в сторону CLI):
+interface int2
+dhcp-server 1
+
+10. ● В качестве DNS сервера пересылки используйте любой общедоступный DNS
+сервер
+
+
+
+
+Для работы DNS есть служба dnsmasq (она же и для DHCP)
+Установим еѐ на наш сервер HQ-SRV
+Ещѐ нам нужно добавить в resolv.conf сервер Yandex, иначе мы не сможем обновить
+репозитории, поэтому идѐм его редактировать следующей командой:
+mcedit /etc/resolv.conf
+И добавляем следующую строку в него:
+nameserver 77.88.8.8
+Обновим пакеты и установим еѐ командами:
+apt-get update
+apt-get install dnsmasq
+systemctl enable --now dnsmasq
+Oткроем файл для редактирования конфигурации нашего DNS-сервера:
+mcedit /etc/dnsmasq.conf
+И добавляем в неѐ строки (для удобства прям с первой строки файла):
+no-resolv
+domain=au-team.irpo
+server=77.88.8.8
+interface=*
+
+address=/hq-rtr.au-team.irpo/192.168.1.1
+ptr-record=1.1.168.192.in-addr.arpa,hq-rtr.au-team.irpo
+cname=moodle.au-team.irpo,hq-rtr.au-team.irpo
+cname=wiki.au-team.irpo,hq-rtr.au-team.irpo
+
+address=/br-rtr.au-team.irpo/192.168.3.1
+address=/hq-srv.au-team.irpo/192.168.1.10
+ptr-record=10.1.168.192.in-addr.arpa,hq-srv.au-team.irpo
+address=/hq-cli.au-team.irpo/192.168.2.10
+ptr-record=10.2.168.192.in-addr.arpa,hq-cli.au-team.irpo
+address=/br-srv.au-team.irpo/192.168.3.10
+
+
+
+
+Сохраняем файл нажатием кнопки F2, а затем выход с помощью F10.
+Теперь необходимо добавить строку 192.168.1.1 hq-rtr.au-team.irpo в файл /etc/hosts:
+mcedit /etc/hosts
+
+
+
+
+Сохраняем файл, выходим из редактора.
+Перезапускаем службу командой:
+systemctl restart dnsmasq
+
+Проверим пинг сначала с HQ-SRV на google.com и hq-rtr.au-team.irpo:
+ping google.com
+ping hq-rtr.au-team.irpo
+
+
+
+
+Теперь проверим пинг с HQ-CLI:
+ping google.com
+ping hq-rtr.au-team.irpo
+
+
+
+
+И проверим работу CNAME записей с HQ-CLI:
+dig moodle.au-team.irpo
+
+
+
+
+dig wiki.au-team.irpo
+11 Настройте часовой пояс на всех устройствах, согласно месту проведения экзамена
+
+Настройка часового пояса на Alt Linux
+Меняем часовой пояс следующей командой:
+На ISP нужно установить
+apt-get install tzdata
+
+timedatectl set-timezone Europe/Moscow
+
+Проверяем:
+timedatectl status
+
+Настройка часового пояса на EcoRouter
+Прописываем команду:
+ntp timezone utc+3
+
+Проверяем:
+show ntp timezone
+                                    МОДУЛЬ 2
+
+Имя устройства    Интерфейс         IPv4           Маска          Шлюз
+ISP               ens19             DHCP
+                  ens20             172.16.4.1     28
+                  ens21             172.16.5.1     28
+BR-RTR            te0 (isp-br)      172.16.5.5     28             172.16.5.1
+                  te1(br-net)       192.168.3.1    27
+                  tunnel.1          192.168.5.2    30
+BR-SRV            ens19             192.168.3.10   27             192.168.3.1
+HQ-RTR            te0 (isp-hq)      172.16.4.4     28             172.16.4.1
+                  te1/srv-net       192.168.1.1    26
+                  te1/scli-net      192.168.2.1    28
+                  te1/management    192.168.99.1   29
+                  tunnel.1          192.168.5.1    30
+HQ-SRV            ens19             192.168.1.10   26             192.168.1.1
+HQ-CLI            ens19             192.168.2.10   28             192.168.2.1
+
+
+
+1. Настройте доменный контроллер Samba на машине BR-SRV.
+• Создайте 5 пользователей для офиса HQ: имена пользователей формата user№.hq.
+Создайте группу hq, введите в эту группу созданных пользователей
+• Введите в домен машину HQ-CLI
+• Пользователи группы hq имеют право аутентифицироваться на клиентском ПК
+• Пользователи группы hq должны иметь возможность повышать привилегии для
+выполнения ограниченного набора команд: cat, grep, id. Запускать другие команды с
+повышенными привилегиями пользователи группы не имеют права
+• Выполните импорт пользователей из файла users.csv. Файл будет располагаться на
+виртуальной машине BR-SRV в папке /opt
+
+apt-get update
+apt-get install task-samba-dc
+
+Теперь удалим конфиг smb.conf, чтобы он не мешал при настройке службы:
+rm -rf /etc/samba/smb.conf
+
+Теперь в конфигурацию нашего DNS-сервера на HQ-SRV добавим следующую строку в
+документ /etc/dnsmasq.conf:
+
+server=/au-team.irpo/192.168.3.10
+Перезапускаем dnsmasq как службу:
+systemctl restart dnsmasq
+
+А теперь запускаем автонастройку доменного контроллера на BR-SRV. Если
+предложенные значения верны, те, что находятся в [], то нажимаем Enter.
+samba-tool domain provision
+AU-TEAM.IRPO
+AU-TEAM
+dc
+SAMBA_INTERNAL
+192.168.1.10 (Здесь вводим значение вручную)
+123qweR%
+
+После настройки должно появится такое в терминале, это значит, что всѐ настроено верно:
+Перемещаем сгенерированный конфиг krb5.conf и включаем службу samba:
+mv -f /var/lib/samba/private/krb5.conf /etc/krb5.conf
+systemctl enable samba
+
+
+
+
+Теперь ПЕРЕЗАПУСКАЕМ машину BR-SRV:
+reboot
+
+Проверяем работу домена:
+samba-tool domain info 127.0.0.1
+Домен работает, у вас должно всѐ соответствовать картинке выше.
+
+Теперь создадим 5 пользователей:
+samba-tool user add user1.hq 123qweR%
+samba-tool user add user2.hq 123qweR%
+samba-tool user add user3.hq 123qweR%
+samba-tool user add user4.hq 123qweR%
+samba-tool user add user5.hq 123qweR%
+
+Теперь создадим группу и поместим туда созданных пользователей:
+samba-tool group add hq
+samba-tool group addmembers hq user1.hq,user2.hq,user3.hq,user4.hq,user5.hq
+
+
+
+
+Теперь введѐм клиентскую машину в домен:
+Заполняем так, как показано на скриншоте ниже:
+
+
+
+
+Пароль указываем который вводили при настройке домена через samba-tool:
+123qweR%
+
+После ввода в домен должно появиться следующее сообщение на экране:
+Перезагружаем машину HQ-CLI
+Чтобы настроить права созданных нами пользователей, нужно установить ещѐ один пакет
+на BR-SRV, но перед этим нужно подключить нужный репозиторий следующей
+командой:
+apt-repo add rpm http://altrepo.ru/local-p10 noarch local-p10
+
+
+
+Теперь обновляем список пакетов:
+apt-get update
+
+И можем устанавливать нужный нам пакет:
+apt-get install sudo-samba-schema
+
+Далее добавляем новую схему следующей командой:
+sudo-schema-apply
+
+Откроется следующее диалоговое окно, нажимаем yes:
+Затем у нас попросит пароль от доменного администратора (123qweR%):
+
+
+
+
+После этого должно появиться такое окно:
+
+
+
+
+Далее мы создаѐм новое правило следующей командой (которую он сам предлагает в этом
+окне):
+create-sudo-rule
+И вносим следующие изменения (имя правила можно любое):
+Имя правила : prava_hq
+sudoCommand        : /bin/cat
+sudoUser           : %hq
+При успешном добавлении выведет следующие строки:
+
+
+
+
+Заходим под ЛОКАЛЬНЫМ ПОЛЬЗОВАТЕЛЕМ на клиентской машине HQ-CLI и
+получаем права root:
+Обновляем список пакетов:
+apt-get update
+
+И поставим пакет admc:
+apt-get install admc
+
+Затем создаѐм тикет доменного администратора, чтобы получить права на редактирование
+правил на сервере:
+kinit administrator
+123qweR%
+
+
+
+
+И запускаем admc:
+admc
+Включим дополнительные возможности через настройки:
+
+
+
+
+Поменяем опцию sudoOption в созданном нами ранее правиле prava_hq (правило всегда
+будет находиться в OU с названием sudoers):
+Новое значение будет:
+!authenticate
+
+И добавим ещѐ две команды в опцию sudoCommand (grep и id):
+/bin/grep
+/usr/bin/id
+
+
+
+
+Обратите внимание, что путь до id отличается от других команд!
+Теперь, чтобы работали все созданные нами правила, нужно зайти на HQ-CLI и
+установить дополнительные пакеты:
+apt-get update
+apt-get install sudo libsss_sudo
+Разрешаем использование sudo:
+control sudo public
+
+Настроим конфиг sssd.conf:
+mcedit /etc/sssd/sssd.conf
+
+services = nss, pam, sudo
+sudo_provider = ad
+
+
+
+
+Теперь отредактируем nsswitch.conf:
+mcedit /etc/nsswitch.conf
+
+sudoers: files sss
+Теперь перезагрузим нашу клиентскую машину HQ-CLI.
+reboot
+На данном этапе мы можем проверить настроенные нами права и правильность настроек
+конфигурационных файлов. Сделать мы это можем под локальной учѐтной записью, у
+которого есть права администратора, в нашем случае это просто root. А ещѐ мы можем
+открыть вторую сессию нажав сочетание клавиш:
+Ctrl+Alt+F2
+В дальнейшем мы можем переключаться между ними, т.к. нажатием тех же клавиш, но
+теперь уже с F1 мы вернемся на первую нашу сессию с графической оболочкой.
+Ctrl+Alt+F1
+После того как зашли на вторую сессию, логинимся под root
+
+Теперь проверим, какие правила для sudoers получил наш доменный пользователь:
+sudo -l -U user1.hq
+
+
+
+
+Настройка прав для группы hq завершена!
+Приступаем к следующему этапу – импортируем пользователей из таблицы users.csv на
+BR-SRV.
+Файл Users.csv, скачен и лежит в каталоге /opt
+Создаѐм файл import и пишем туда следующий код:
+mcedit import
+
+#!/bin/bash
+csv_file=”/opt/users.csv”
+while IFS=”;” read -r firstName lastName role phone ou street zip city country password;
+do
+        if [ “$firstName” == “First Name” ]; then
+                continue
+        fi
+        username=”${firstName,,}.${lastName,,}”
+        sudo samba-tool user add “$username” 123qweR%
+done < “$csv_file”
+
+
+
+
+Сохраняем этот файл и выдаѐм ему право на выполнение и запускаем его:
+chmod +x /root/import
+
+
+
+
+Добавляться они будут долго
+
+2. Сконфигурируйте файловое хранилище:
+• При помощи трѐх дополнительных дисков, размером 1Гб каждый, на HQ-SRV
+сконфигурируйте дисковый массив уровня 5
+• Имя устройства – md0, конфигурация массива размещается в файле
+/etc/mdadm.conf
+• Обеспечьте автоматическое монтирование в папку /raid5
+• Создайте раздел, отформатируйте раздел, в качестве файловой системы
+используйте ext4
+• Настройте сервер сетевой файловой системы(nfs), в качестве папки общего доступа
+выберите /raid5/nfs, доступ для чтения и записи для всей сети в сторону HQ-CLI
+• На HQ-CLI настройте автомонтирование в папку /mnt/nfs
+• Основные параметры сервера отметьте в отчѐте
+
+Cоздание RAID
+Просматриваем имена добавленных дисков:
+lsblk
+Вывод:
+sdb 8:16 0 1G 0 диск
+sdc 8:32 0 1G 0 диск
+sdd 8:48 0 1G 0 диск
+
+Создаем RAID:
+mdadm --create /dev/md0 -l 5 -n 3 /dev/sd{b,c,d}
+/dev/md0 - название RAID после сборки
+-l 5 - уровень RAID
+-n 3 - количество дисков, из которых собирается массив
+/dev/sd{b,c,d} — диски, из которых выполняется сборка
+
+
+Проверяем:
+lsblk
+Вывод:
+sdb 8:16 0 1G 0 диск
+  md0 9:0 0 2G 0 raid5
+sdc 8:32 0 1G 0 диск
+  md0 9:0 0 2G 0 raid5
+sdd 8:48 0 1G 0 диск
+  md0 9:0 0 2G 0 raid5
+
+Создаем файловую систему из созданного RAID:
+mkfs -t ext4 /dev/md0
+
+
+
+
+Создание файла mdadm.conf
+Заполняем файл информацией:
+echo "DEVICE partitions" > /etc/mdadm.conf
+mdadm --detail --scan | awk '/ARRAY/ {print}' >> /etc/mdadm.conf
+
+
+Создание файловой системы и монтирование RAID-массива
+Создаем директорию для монтирования массива:
+mkdir /raid5
+
+Добавляем строку в /etc/fstab:
+/dev/md0    /raid5 ext4 defaults       0      0 (разделение TAB)
+Монтируем:
+mount -a
+
+Проверяем монтирование:
+df -h
+Вывод:
+/dev/md0 2.0G 24K 1.9G 1% /raid5
+
+Настройка NFS
+Устанавливаем пакеты для NFS-сервера:
+apt-get install -y nfs-{server,utils}
+
+Создаем директорию для общего доступа:
+mkdir /raid5/nfs
+
+Выдаем права на чтение и запись этой директории:
+chmod 766 /raid5/nfs
+
+Добавляем строку в /etc/exports:
+/raid5/nfs 192.168.2.0/28 (rw,no_root_squash)
+/mnt/raid5/nfs - общий ресурс
+192.168.200.0/28 — клиентская сеть, которой разрешено монтировать общий ресурс
+rw — разрешены чтение и запись
+no_root_squash — отключение ограничения прав root
+Экспортируем файловую систему, которую прописали ранее:
+exportfs -arv
+
+-a – экспортировать все указанные каталоги
+-r – повторный экспорт всех каталогов, синхронизация /var/lib/nfs/etab с /etc/exports и
+файлами в /etc/exports.d
+-v - подробный вывод
+
+Запускаем и добавляем в автозагрузку NFS-сервер:
+systemctl enable --now nfs-server
+
+
+Настройка клиента HQ-CLI
+Устанавливаем требуемые пакеты для NFS-клиента:
+apt-get update && apt-get install -y nfs-{utils,clients}
+
+Создаем директорию для общего ресурса:
+mkdir /mnt/nfs
+
+Выдаем права этой директории:
+chmod 777 /mnt/nfs
+
+Добавляем строку в /etc/fstab для автоматического монтирования общего ресурса:
+192.168.1.10:/raid5/nfs    /mnt/nfs nfs    defaults 0      0 (разделение TAB)
+
+Монтируем общий ресурс:
+mount -a
+Проверяем монтирование:
+df -h
+Вывод:
+192.168.1.10:/raid5/nfs 2,0G        0        1,9G     0%       /mnt/nfs
+
+
+3. Настройте службу сетевого времени на базе сервиса chrony
+• В качестве сервера выступает HQ-RTR
+• На HQ-RTR настройте сервер chrony, выберите стратум 5
+• В качестве клиентов настройте HQ-SRV, HQ-CLI, BR-RTR, BR-SRV
+
+Так как на HQ-RTR нет утилиты chrony и возможность выбора
+стратума, NTP-сервером будет выступать ISP
+Конфигурация NTP-сервера (ISP)
+Скачиваем пакет chrony:
+apt-get install -y chrony
+
+Приводим начало файла /etc/chrony.conf к следующему виду:
+# Use public servers from the pool.ntp.org project.
+# Please consider joining the pool (https://www.pool.ntp.org/join.html
+#pool pool.ntp.org iburst
+
+server 127.0.0.1 iburst prefer
+hwtimestamp *
+local stratum 5
+allow 0/0
+server 127.0.0.1 - указываем сервером синхронизации самого себя
+iburst - принудительно отправляет пакеты для точности синхронизации
+prefer - отдает приоритет этому серверу
+hwtimestamp * - указывает сетевой интерфейс как собственный источник времени и
+синхронизирует клиентов с ним
+local stratum 5 - указание иерархического уровня
+allow 0/0 - разрешает подключение с любого IP-адреса
+
+Запускаем и добавляем в автозагрузку утилиту chronyd:
+systemctl restart chronyd
+systemctl enable --now chronyd
+
+Проверка конфигурации NTP-сервера
+Получаем вывод источников времени с помощью команды:
+chronyc sources
+Вывод:
+MS Name/IP address       Stratum Poll Reach LastRx Last sample
+=====================================================================
+========
+^/ localhost.localdomain 0     8 377 -      +0ns[ +0ns] +/- 0ns
+
+
+Получаем вывод уровня стратума с помощью связки команд:
+chronyc tracking | grep Stratum
+Вывод:
+Stratum: 5
+
+Конфигурация NTP-клиента EcoRouter
+Указываем IP-адрес NTP-сервера (в режиме конфигурации):
+ntp server 172.16.4.1
+
+Указываем часовой пояс:
+ntp timezone utc+3
+
+Проверка конфигурации NTP-клиента EcoRouter (в привилегированном режиме)
+Проверяем командой:
+show ntp status
+Вывод:
+Status Description
+*    best
++ sync
+- failed
+?    unknown
+
+----------------------------------------------------------------------------------------------------
+Status | VR name | Server | Stratum | Delay | Version | Offset | Last | Source IP
+----------------------------------------------------------------------------------------------------
+     *| default|172.16.4.1|              5| 0.0391|           4| 0.0036| 3:26|
+
+Конфигурация NTP-клиента Alt Linux
+Скачиваем пакет chrony:
+apt-get install chrony
+
+Приводим начало файла /etc/chrony.conf к следующему виду:
+#pool pool.ntp.org iburst
+server 172.16.4.1 iburst prefer
+iburst - принудительно отправляет пакеты для точности синхронизации
+prefer - отдает приоритет этому серверу
+
+Запускаем утилиту chrony и добавляем ее в автозагрузку:
+systemctl restart chronyd
+systemctl enable --now chronyd
+
+4. Сконфигурируйте ansible на сервере BR-SRV
+• Сформируйте файл инвентаря, в инвентарь должны входить HQSRV, HQ-CLI, HQ-
+RTR и BR-RTR
+• Рабочий каталог ansible должен располагаться в /etc/ansible
+• Все указанные машины должны без предупреждений и ошибок отвечать pong на
+команду ping в ansible посланную с BR-SRV
+
+Для начала проверим, обновлены ли у нас списки пакетов и затем попробуем установить
+ansible:
+apt-get update
+apt-get install ansible
+Заходим в файл
+mcedit /etc/ansible/hosts
+Теперь нам нужно написать следующие строки в файл hosts:
+Servers:
+ hosts:
+  HQ-SRV:
+   ansible_host: 192.168.1.10
+   ansible_user: sshuser
+   ansible_port: 2024
+  HQ-CLI:
+   ansible_host: 192.168.2.10
+   ansible_user: user
+   ansible_port: 2024
+Networking:
+ hosts:
+  HQ-RTR:
+   ansible_host: 172.16.4.4
+   ansible_user: net_admin
+   ansible_password: P@$$word
+   ansible_connection: network_cli
+   ansible_network_os: ios
+  BR-RTR:
+   ansible_host: 192.168.3.1
+   ansible_user: net_admin
+   ansible_password: P@$$word
+   ansible_connection: network_cli
+   ansible_network_os: ios
+
+Скачиваем утилиту wget:
+apt-get install -y wget
+
+Скачиваем архив с последней версией Python во временную директорию /tmp:
+wget https://www.python.org/ftp/python/3.14.0/Python-3.14.0a1.tgz
+
+Разархивируем скачанный архив:
+tar zxvf Python-3.14.0a1.tgz
+
+Копируем полученную папку:
+cp -r Python-3.14.0a1 /usr/local/bin
+
+И настроим в каталоге /etc/ansible файл ansible.cfg:
+mcedit /etc/ansible/ansible.cfg
+
+Добавим под строку [defaults] ещѐ одну:
+interpreter_python=/usr/bin/python3.9
+
+И раскоментировать значения
+ask_pass = False
+host_key_checking = False
+
+Теперь на BR-SRV генерируем ключи RSA, чтобы экспортировать их на машины
+клиенты, строку с путѐм и passphrase оставляем пустой:
+ssh-keygen -t rsa
+Копируем публичный ключ на клиентские машины HQ-CLI, HQ-SRV
+ssh-copy-id -p 2024 user@192.168.2.10 (возможно будет ошибка connect port 2024. Для
+решения ошибки на HQ-CLI выполняем команду systemctl restart sshd.service)
+ssh-copy-id -p 2024 sshuser@192.168.1.10
+После этого мы можем проверить связь. Машины должны без предупреждений и ошибок
+отвечать pong на команду ping в ansible посланную с BR-SRV:
+ansible all -m ping
+
+
+
+
+5. Развертывание приложений в Docker на сервере BR-SRV.
+• Создайте в домашней директории пользователя файл wiki.yml для приложения
+MediaWiki.
+• Средствами docker compose должен создаваться стек контейнеров с приложением
+MediaWiki и базой данных.
+• Используйте два сервиса
+• Основной контейнер MediaWiki должен называться wiki и использовать образ
+mediawiki
+• Файл LocalSettings.php с корректными настройками должен находиться в
+домашней папке пользователя и автоматически монтироваться в образ.
+• Контейнер с базой данных должен называться mariadb и использовать образ
+mariadb.
+• Разверните
+• Он должен создавать базу с названием mediawiki, доступную по стандартному
+порту, пользователя wiki с паролем WikiP@ssw0rd должен иметь права доступа к
+этой базе данных
+• MediaWiki должна быть доступна извне через порт 8080.
+
+Перед настройкой нам необходимо обновить список пакетов и установить docker-engine
+и docker-compose:
+apt-get update
+apt-get install docker-engine docker-compose
+
+И запустим службу docker:
+systemctl enable --now docker
+Загружаем образы следующей командой:
+docker pull mediawiki
+docker pull mariadb
+
+Создаем в домашней директории пользователя файл, в качестве пользователя, которого
+мы создавали при установке ОС, у нас – user, а его домашний каталог – /home/user, файл
+называется – wiki.yml, для приложения MediaWiki:
+mcedit /home/user/wiki.yml
+И заполняем его следующими строками, обратите внимание, что в строках ПРОБЕЛЫ, А
+НЕ ТАБУЛЯЦИЯ:
+services:
+ mariadb:
+  image: mariadb
+  container_name: mariadb
+  restart: always
+  environment:
+   MYSQL_ROOT_PASSWORD: 123qweR%
+   MYSQL_DATABASE: mediawiki
+   MYSQL_USER: wiki
+   MYSQL_PASSWORD: WikiP@ssw0rd
+  volumes: [ mariadb_data:/var/lib/mysql ]
+ wiki:
+  image: mediawiki
+  container_name: wiki
+  restart: always
+  environment:
+   MEDIAWIKI_DB_HOST: mariadb
+   MEDIAWIKI_DB_USER: wiki
+   MEDIAWIKI_DB_PASSWORD: WikiP@ssw0rd
+   MEDIAWIKI_DB_NAME: mediawiki
+  ports:
+   - "8080:80"
+  #volumes: [ /home/user/mediawiki/LocalSettings.php:/var/www/html/LocalSettings.php ]
+volumes:
+ mariadb_data:
+После всех настроек строку volumes.. мы обратно раскомментируем, убрав символ #!
+Приступаем к запуску контейнера wiki.yml, в зависимости от версии compose, существует
+ещѐ одна запись, она для второй его версии:
+docker compose -f /home/user/wiki.yml up -d
+Заходим с клиента HQ-CLI на сайт после запуска контейнера 192.168.3.10:8080:
+
+
+
+
+Видим, что файл LocalSettings.php не найден, и нажимаем на complete the installation
+или set up the wiki.
+Выбираем удобный для вас язык:
+
+
+
+
+Здесь просто идѐм далее:
+Видим строки, которые нужно заполнить:
+      Хост базы данных:
+mariadb
+      Имя базы данных (без дефисов):
+mediawiki
+      Имя пользователя базы данных:
+wiki
+      Пароль базы данных:
+WikiP@ssw0rd
+
+
+
+
+Прожимаем Далее, оставляя всѐ как есть:
+Пишем в строках следующее и выбираем пункты, как на скрине:
+Название вики:
+cock (можно своѐ название)
+Ваше имя участника:
+wiki
+Пароль:
+WikiP@ssw0rd
+
+
+
+
+Нажимаем Далее:
+И вот мы успешно создали базу данных:
+
+
+
+
+Далее автоматически скачивается файл LocalSettings.php, который нужно переместить
+теперь на сервер с mediawiki, а именно на BR-SRV c HQ-CLI:
+scp /home/user/Downloads/LocalSettings.php sshuser@192.168.3.10:/home/sshuser/
+
+Теперь заходим на сервер BR-SRV и перемещаем скачанный файл в /root, но перед этим
+удаляем то, что создалось в /root (могло и не создаваться, так даже лучше):
+mkdir /home/user/mediawiki
+mv /home/sshuser/LocalSettings.php /home/user/mediawiki/
+ls /home/user/mediawiki/
+
+
+
+
+Раскомментируем, как и говорили ранее, строку volumes…:
+Теперь перезапускаем контейнеры путѐм запуска контейнера ещѐ раз:
+docker compose -f /home/user/wiki.yml up -d
+
+
+
+
+Проверим работу сайта, зайдем вновь через клиента HQ-CLI и увидим домашнюю
+страницу сайта:
+
+6. На маршрутизаторах сконфигурируйте статическую трансляцию портов
+• Пробросьте порт 80 в порт 8080 на BR-SRV на маршрутизаторе BR-RTR, для
+обеспечения работы сервиса wiki
+• Пробросьте порт 2024 в порт 2024 на HQ-SRV на маршрутизаторе HQ-RTR
+• Пробросьте порт 2024 в порт 2024 на BR-SRV на маршрутизаторе BR-RTR
+
+Конфигурация BR-RTR
+Проброс портов с 80 на 8080 для работы сервиса wiki:
+ip nat source static tcp 192.168.3.10 8080 172.16.5.5 80
+
+Проброс портов с 2024 на 2024:
+ip nat source static tcp 192.168.3.10 2024 172.16.5.5 2024
+
+Конфигурация HQ-RTR
+Проброс портов с 2024 на 2024:
+ip nat source static tcp 192.168.1.10 2024 172.16.4.4 2024
+
+7. Запустите сервис moodle на сервере HQ-SRV:
+• Используйте веб-сервер apache
+• В качестве системы управления базами данных используйте mariadb
+• Создайте базу данных moodledb
+• Создайте пользователя moodle с паролем P@ssw0rd и предоставьте ему права
+доступа к этой базе данных
+• У пользователя admin в системе обучения задайте пароль P@ssw0rd
+• На главной странице должен отражаться номер рабочего места в виде арабской
+цифры, других подписей делать не надо
+• Основные параметры отметьте в отчѐте
+
+Устанавливаем для ряд пакетов, которые будут нам нужны для работы:
+apt-get update
+apt-get install apache2 php8.2 apache2-mod_php8.2 mariadb-server php8.2-{opcache,curl,
+gd,intl,mysqli,xml,xmlrpc,ldap,zip,soap,mbstring,json,xmlreader,fileinfo,sodium}
+
+
+Включаем службы httpd2 и mysqld для дальнейшей работы с ними следующей командой:
+systemctl enable --now httpd2 mysqld
+
+Теперь настроим безопасный доступ к нашей будущей базе данных с помощью команды:
+mysql_secure_installation
+Прожимаем просто enter, т.к. сейчас root без пароля:
+Enter
+Прожимаем y для задания пароля:
+Y
+Задаем пароль к нашему root, желательно стандартный:
+123qweR%
+Далее нажимаем на всѐ y:
+Y
+
+Теперь заходим в СУБД для создания и настройки базы данных:
+mariadb -u root -p
+CREATE DATABASE moodledb;
+CREATE USER moodle IDENTIFIED BY „P@ssw0rd‟;
+GRANT ALL PRIVILEGES ON moodledb.* TO moodle;
+FLUSH PRIVILEGES;
+exit
+
+Теперь скачаем сам мудл стабильной версии:
+curl -L https://github.com/moodle/moodle/archive/refs/tags/v4.5.0.zip > /root/moodle.zip
+
+Разархивируем его в /var/www/html/ для дальнейшей настройки:
+unzip /root/moodle.zip -d /var/www/html
+mv /var/www/html/moodle-4.5.0/* /var/www/html/
+
+Создадим новый каталог moodledata, там будут храниться данные и изменим владельца
+на каталогах html и moodledata:
+mkdir /var/www/moodledata
+chown apache2:apache2 /var/www/html
+chown apache2:apache2 /var/www/moodledata
+Поменяем значение параметра max_input_vars в файле php.ini:
+mcedit /etc/php/8.2/apache2-mod_php/php.ini
+Жмѐм F7 для поиска нужной нам строки и пишем туда:
+max_input_vars
+
+Раскомментируем и пишем новое значение:
+max_input_vars = 5000
+
+Удаляем стандартную страницу apache:
+rm /var/www/html/index.html
+
+Перезапускаем службу httpd2:
+systemctl restart httpd2
+
+Теперь подключаемся с клиента HQ-CLI и начинаем настройку:
+http://192.168.1.10/install.php
+
+
+
+
+Жмѐм далее, т.к. каталог у нас уже создан:
+Выбираем MariaDB в качестве драйвера базы данных:
+
+
+
+
+Введѐм нужные данные в следующие строки:
+Название базы данных:         moodledb
+Пользователь базы данных:           moodle
+Пароль:                             P@ssw0rd
+Нажимаем ―Продолжить‖:
+
+
+
+
+Просматриваем всѐ ли в статус ―OK‖ или ―Проверка‖ и прожимаем ―Продолжить‖:
+Дальше пойдѐт процесс установки в виде такого окна, процесс этот может быть долгим,
+не пугайтесь:
+
+После установки видим, что всѐ прошло успешно и жмѐм ―Продолжить‖:
+
+
+
+
+Далее заполняем обязательные поля для создания основного администратора:
+Логин:                         admin
+Новый пароль:                  P@ssw0rd
+Имя:                           Администратор (можно любое)
+Фамилия:                       Пользователь (можно любое)
+Адрес электронной почты:       test.test@mail.ru (можно любое)
+И нажимаем ―Обновить профиль‖:
+
+
+
+
+Теперь заполним ещѐ некоторые строки на следующем шаге:
+Полное название сайта:         moodle (можно любое)
+Краткое название сайта:        11 (согласно вашему рабочему месту)
+Настройки местоположения:       Europa/Moscwa (согласно вашему региону)
+Контакты службы поддержки: test.test@mail.ru (можно любое)
+И жмѐм ―Сохранить изменения‖ в конце страницы:
+
+
+
+
+И после всего нас встречает рабочий сайт moodle, смотрим, что все наши указанные
+параметры отображаются:
+
+8. Настройте веб-сервер nginx как обратный прокси-сервер на HQ-RTR
+• При обращении к HQ-RTR по доменному имени moodle.au-team.irpo клиента
+должно перенаправлять на HQ-SRV на стандартный порт, на сервис moodle
+• При обращении к HQ-RTR по доменному имени wiki. au-team.irpo клиента должно
+перенаправлять на BR-SRV на порт, на сервис mediwiki
+
+Поменяем значение wwwroot в конфигурации moodle на HQ-SRV:
+mcedit /var/www/html/config.php
+$CFG->wwwroot = „http://moodle.au-team.irpo‟;
+Вместо HQ-RTR будем использовать BR-SRV
+
+На HQ-SRV правим файл /etc/dnsmasq.conf
+Изменяем, что бы при обращении по доменному имени moodle.au-team.irpo и wiki.au-
+team.irpo переадресовывалось на br-srv.au-team.irpo
+
+
+
+
+Перезапускаем dns
+systemctl restart dnsmasq
+
+Устанавливаем пакет nginx на BR-SRV для дальнейшей настройки:
+apt-get install nginx
+
+Создаѐм новый конфигурационный файл proxy.conf:
+mcedit /etc/nginx/sites-available.d/proxy.conf
+И заполняем его следующими строками:
+upstream moodle.au-team.irpo {
+  server 192.168.1.10;
+}
+upstream wiki.au-team.irpo {
+  server 192.168.3.10:8080;
+}
+server {
+  listen 80;
+  server_name moodle.au-team.irpo;
+  location / {
+    proxy_pass http://moodle.au-team.irpo;
+  }
+}
+server {
+  listen 80;
+  server_name wiki.au-team.irpo;
+  location / {
+    proxy_pass http://wiki.au-team.irpo;
+  }
+}
+Удаляем конфигурацию (default), которую создал nginx, потом включаем созданную нами
+ранее (proxy), путѐм создания символической ссылки, а затем перезапускаем службу
+nginx:
+rm -rf /etc/nginx/sites-available.d/default.conf
+ln -s /etc/nginx/sites-available.d/proxy.conf /etc/nginx/sites-enabled.d/
+ls -la /etc/nginx/sites-enabled.d
+systemctl restart nginx
+
+
+Проверим работу нашего обратного прокси и зайдем на наши поднятые ранее сайты
+moodle и wiki с клиента HQ-CLI.
+
+
+
+
+9. Удобным способом установите приложение Яндекс Браузере для организаций на
+HQ-CLI
+• Установку браузера отметьте в отчѐте
+Установим Яндекс Браузер на HQ-CLI через терминал командами:
+apt-get install yandex-browser-stable
+                                    МОДУЛЬ 3
+1. Выполните миграцию на новый контроллер домена BR-SRV с HQSRV,
+являющийся наследием:
+• Для экспорта напишите сценарий, используйте для выгрузки файл .csv
+• Произведите экспорт и последующий импорт на новый домен пользователей,
+сохранив логины, описание в виде: ФИО, пароли, подключенные сетевые диски
+• Произведите экспорт и последующий импорт групп и членов групп, кроме
+стандартных
+• Произведите экспорт и последующий импорт подразделений, и входящих в них
+пользователей и групп
+• Произведите экспорт и последующий импорт общих папок и разрешения к ним
+• Реализуйте автоматическое монтирование общих папок на HQ-CLI
+
+2. Выполните настройку центра сертификации на базе HQ-SRV:
+• Необходимо использовать отечественные алгоритмы шифрования
+• Сертификаты выдаются на 365 дней
+• Обеспечьте доверие сертификату для HQ-CLI
+• Выдайте сертификаты веб серверам
+• Перенастройте ранее настроенные веб сервера, moodle, wiki, реверсивный прокси
+nginx на протокол https
+• При обращении к веб серверам по их доменным именам у браузера клиента не
+должно возникать предупреждений
+
+
+HQ-SRV:
+Установим пакет openssl - с поддержкой ГОСТ:
+apt-get install -y openssl-gost-engine
+Включим поддержку ГОСТ, используя control:
+control openssl-gost enabled
+Генерируем закрытый ключ нового УЦ c длиной ключа 512 бит и набором параметров
+подписи "C" (ca.key):
+openssl genpkey -aes256 -algorithm gost2012_512 -pkeyopt paramset:C -out ca.key
+защищаем закрытый ключ паролем
+
+
+
+Создаѐм корневой сертификат на 365 дней (ca.crt):
+openssl req -x509 -md_gost12_512 -new -days 365 -key ca.key -out ca.crt
+
+
+
+
+Проверяем корневой сертификат:
+openssl req -newkey rsa:4096 -nodes -keyout ca.key -x509 -days 365 -out ca.crt
+
+
+openssl x509 -noout -text -in ca.crt
+
+
+
+
+Далее передаѐм корневой сертификат ca.crt на
+scp -P 2024 ca.crt user@192.168.2.10:~/
+scp -P 2024 ca.crt user@192.168.3.10:~/
+
+
+HQ-CLI
+Добавляем корневой сертификат ca.crt в качестве доверенного Центра сертификации:
+cp /home/user/ca.crt /etc/pki/ca-trust/source/anchors/ && update-ca-trust
+
+Проверяем наличие сертификата в браузере:
+Генерируем ключ
+
+
+
+
+Генерируем сертификат moodle
+openssl req -newkey gost2012_512 -pkeyopt paramset:C -keyform PEM -outform PEM -nodes
+-keyout moodle.key -out moodle.csr
+openssl x509 -in web.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out web.crt -days 365
+
+На HQ-SRV
+mkdir /etc/httpd2/ssl
+cp –R moodle.key /etc/httpd2/ssl
+cp –R ca.crt /etc/httpd2/ssl
+apt-get install apache2-mod_ssl
+
+
+
+
+openssl x509 -req -in web.csr -CA ca.crt -CAkey ca.key -CAcreateserial \
+  -out web.crt -days 365 -sha256 -extfile openssl.cnf -extensions req_ext
+
+3. Перенастройте ip-туннель с базового до уровня туннеля, обеспечивающего
+шифрование трафика
+• Настройте защищенный туннель между HQ-RTR и BR-RTR
+• Внесите необходимые изменения в конфигурацию динамической маршрутизации,
+протокол динамической маршрутизации должен возобновить работу после
+перенастройки туннеля
+• Выбранное программное обеспечение, обоснование его выбора и его основные
+параметры, изменения в конфигурации динамической маршрутизации отметьте в
+отчѐте
+
+На BR-RTR
+
+en
+conf t
+crypto-ipsec profile test1 manual
+mode tunnel
+ipsec-outbound esp
+sp-index 1000
+authenticator sha1 0x000102030405060708090a0b0c0d0e0f00000000
+encryption 3des 0x000102030405060708090a0b0c0d0e0faaaaaaaabbbbbbbb
+ipsec-inbound esp
+sp-index 1001
+authenticator sha1 0x000102030405060708090a0b0c0d0e0f11111111
+encryption 3des 0x000102030405060708090a0b0c0d0e0faaaaaaaabbbbbbbb
+!
+crypto-map ipsec 10
+match peer 172.16.4.4
+set crypto-ipsec profile test1
+!
+filter-map ipv4 ipsec_tunnel 5
+match esp host 192.168.5.1 host 192.168.5.2
+set crypto-map ipsec peer 192.168.5.1
+!
+int tunnel.1
+set filter-map in ipsec_tunnel 5
+
+На HQ-RTR
+en
+conf t
+crypto-ipsec profile test1 manual
+mode tunnel
+ipsec-outbound esp
+sp-index 1001
+authenticator sha1 0x000102030405060708090a0b0c0d0e0f11111111
+encryption 3des 0x000102030405060708090a0b0c0d0e0faaaaaaaabbbbbbbb
+ipsec-inbound esp
+sp-index 1000
+authenticator sha1 0x000102030405060708090a0b0c0d0e0f00000000
+encryption 3des 0x000102030405060708090a0b0c0d0e0faaaaaaaabbbbbbbb
+!
+crypto-map ipsec 10
+match peer 172.16.5.5
+set crypto-ipsec profile test1
+!
+filter-map ipv4 ipsec_tunnel 5
+match esp host 192.168.5.2 host 192.168.5.1
+set crypto-map ipsec peer 192.168.5.2
+!
+int tunnel.1
+set filter-map in ipsec_tunnel 5
+
+
+4. Настройте межсетевой экран на маршрутизаторах HQ-RTR и BR-RTR на сеть в
+сторону ISP
+• Обеспечьте работу протоколов http, https, dns, ntp, icmp или дополнительных
+нужных протоколов
+• Запретите остальные подключения из сети Интернет во внутреннюю сеть
+
+5. Настройте принт-сервер cups на сервере HQ-SRV.
+• Опубликуйте виртуальный pdf-принтер
+• На клиенте HQ-CLI подключите виртуальный принтер как принтер по умолчанию
+
+apt-get update
+apt-get install cups
+systemctl enable --now cups
+
+Правим файл
+mcedit /etc/cups//cupsd.conf
+systemctl restart cups
+
+Устанавливаем виртуальный PDF принтер
+apt-get install cups-pdf
+
+Подключение виртуального принтера на HQ-CLI
+apt-get update
+apt-get install cups
+systemctl enable --now cups
+
+Подключаем удаленный принтер
+lpadmin -p PDF_print -E -v ipp://192.168.1.10:631/printers/Cups-PDF -m everywhere
+
+Устанавливаем подключенный принтер как принтер по умолчанию.
+Проверяем работу
+
+
+
+
+6. Реализуйте логирование при помощи rsyslog на устройствах HQ-RTR, BR-RTR,
+BR-SRV
+• Сервер сбора логов расположен на HQ-SRV, убедитесь, что сервер не является
+клиентом самому себе
+• Приоритет сообщений должен быть не ниже warning
+• Все журналы должны находиться в директории /opt. Для каждого устройства
+должна выделяться своя поддиректория, которая совпадает с именем машины
+• Реализуйте ротацию логов: o Ротация производится один раз в неделю o Логи
+необходимо сжимать o Минимальный размер логов для ротации – 10 МБ
+
+HQ-SRV:
+Устанавливаем пакет rsyslog-classic:
+apt-get install -y rsyslog-classic
+В конфигурационной файле /etc/rsyslog.d/00_common.conf разрешаем серверу принимать
+соединение по TCP и UDP, раскомментировав следующие параметры в секции Modules:
+mcedit /etc/rsyslog.d/00_common.conf
+systemctl enable --now rsyslog
+
+Настройка Linux хостов, который будут отправлять лог-сообщения:
+BR-SRV:
+Установим пакет rsyslog-classic:
+apt-get install -y rsyslog-classic
+
+Добавим правило, которое на данном этапе, будет отправлять на сервер HQ-SRV любой
+лог:
+echo "*.warning @@192.168.1.10:514" > /etc/rsyslog.d/all_log.conf
+
+Включаем и добавляем в автозагрузку службу rsyslog:
+systemctl enable --now rsyslog
+
+Настройка EcoRouter
+en
+conf t
+rsyslog host 192.168.1.10
+
+Реализуем ротацию логов на HQ-SRV
+
+Создаѐм конфигурационный файл /etc/logrotate.d/rsyslog.conf:
+mcedit /etc/logrotate.d/rsyslog.conf
+содержимое:
+Эти настройки означают, что ротация журналов будет выполняться каждую неделю
+(weekly)
+Минимальный размер для ротации - 10 мегабайт (size 10M), ротация не будет выполнена,
+если лог не занимает более 10 мегабайт
+Будет использоваться сжатие, для всех журналов (compress)
+
+Проверить как работает конфигурация:
+для этого запустим утилиту logrotate с опцией -d
+logrotate -d /etc/logrotate.d/rsyslog.conf
+она выведет все, что планируется сделать, но не будет изменять файлы на диске
+Поскольку размер меньше 10МБ - то на данный момент ничего не произойдѐт, что и
+сказано в выводе данной команды
+
+7. На сервере HQ-SRV реализуйте мониторинг устройств с помощью открытого
+программного обеспечения. Обеспечьте доступность по URL - https://mon.au-
+team.irpo
+• Мониторить нужно устройства HQ-RTR, HQ-SRV, BR-RTR и BRSRV
+• В мониторинге должны визуально отображаться нагрузка на ЦП, объем занятой
+ОП и основного накопителя
+• Логин и пароль для службы мониторинга admin P@ssw0rd
+• Выбор программного обеспечения, основание выбора и основные параметры с
+указанием порта, на котором работает мониторинг, отметьте в отчѐте
+
+8. Реализуйте механизм инвентаризации машин HQ-SRV и HQ-CLI через Ansible на
+BR-SRV:
+• Плейбук должен собирать информацию о рабочих местах: o Имя компьютера o IP-
+адрес компьютера o Отчеты, собранные с машин, должны быть размещены в том же
+каталоге на сервере, где и плейбук, в папке PC_INFO, в формате .yml. Файл
+называется именем компьютера, который был инвентаризован o Рабочий каталог
+ansible должен располагаться в /etc/ansible
+
+Создаем на BR-SRV каталог /PC_INFO
+mkdir /etc/ansible/PC_INFO
+
+Создаем плейбук
+mcedit /etc/ansible/PC_INFO/pc_info.yml
+Создаем файлы для сохранения конфигурации
+mcedit /etc/ansible/PC_INFO/HQ-SRV.yml
+mcedit /etc/ansible/PC_INFO/HQ-CLI.yml
+
+Запускаем плейбук
+ansible-playbook /etc/ansible /PC_INFO/pc_info.yml
+
+
+
+
+9. Реализуйте механизм резервного копирования конфигурации для машин HQ-RTR
+и BR-RTR, через Ansible на BR-SRV:
+• Плейбук должен собирать информацию о сетевых устройствах HQRTR и BR-RTR и
+делать резервную копию конфигурации (в случае использования EcoRouter –
+полную конфигурацию, в случае ОС на базе Linux – файлы конфигурации
+динамической маршрутизации, настроек межсетевого экрана, параметров настройки
+сети, настройки динамической конфигурации хостов). Информацию сохранять в
+папку NETWORK_INFO
+
+На BR-RTR и HQ-RTR создаем профили безопасности и применяем к VRF default
+security-profile 1
+exit
+security 1 vrf default
+
+На BR-SRV создаем директорию NETWORK_INFO
+mkdir /etc/ansible/NETWORK_INFO
+
+Создаем плейбук
+mcedit /etc/ansible/NETWORK_INFO /playbook.yml
+
+
+
+
+Запускаем плейбук
+ansible-playbook /etc/ansible/ NETWORK_INFO /playbook.yml
+
